@@ -81,14 +81,14 @@ async def fetch_art(hass) -> tuple[bytes, dict[str, str]]:
                         item = await _json(session, MET_OBJECT.format(obj_id))
                     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
                         continue
-                    if item.get("isPublicDomain") and item.get("primaryImage"):
+                    if isinstance(item, dict) and item.get("isPublicDomain") and item.get("primaryImage"):
                         candidates.append((item["primaryImage"], {"source": "The Metropolitan Museum of Art", "title": item.get("title") or "Untitled", "artist": item.get("artistDisplayName") or "Unknown", "link": item.get("objectURL") or "https://www.metmuseum.org/hubs/open-access"}))
             for url, metadata in candidates[:12]:
                 try:
                     data = await _image(session, url)
                     image = await hass.async_add_executor_job(_prepare, data)
                     return image, metadata
-                except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, OSError):
+                except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, OSError, Image.DecompressionBombError):
                     continue
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError, KeyError):
             continue

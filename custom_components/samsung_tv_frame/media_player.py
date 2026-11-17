@@ -36,6 +36,7 @@ from .const import (
     ATTR_SHOW,
     ATTR_SHUFFLE,
     CONF_MAC,
+    LOGGER,
     SERVICE_CHANGE_MATTE,
     SERVICE_DELETE_ART,
     SERVICE_SELECT_ART,
@@ -338,8 +339,16 @@ class FrameMediaPlayer(FrameEntity, MediaPlayerEntity):
                     except Exception:
                         # Keep the ID for retry on a later successful rotation.
                         pass
+            cleanup_pending = sum(old_id in pending["owned_ids"] for old_id in old_ids if old_id != new_id)
+            if cleanup_pending:
+                LOGGER.warning("Museum artwork updated, but %d old image(s) could not be removed", cleanup_pending)
             await self.coordinator.async_request_refresh()
-            return {"status": "updated", "content_id": new_id, "artwork": metadata}
+            return {
+                "status": "updated_cleanup_pending" if cleanup_pending else "updated",
+                "content_id": new_id,
+                "artwork": metadata,
+                "cleanup_pending": cleanup_pending,
+            }
 
     async def async_delete_art_service(self, content_id: str) -> None:
         try:
