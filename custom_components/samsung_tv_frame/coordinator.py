@@ -80,6 +80,7 @@ class FrameCoordinator(DataUpdateCoordinator[FrameData]):
         self._art_ready_refresh_task: asyncio.Task | None = None
         self._art_service_repair_raised = False
         self._art_service_repair_synced = False
+        self._pairing_repair_state: bool | None = None
         self._standby_refresh_task: asyncio.Task | None = None
         # Consecutive polls (reachable, power on) with a failed art query;
         # bounds the last-stable hold so a permanently broken art channel
@@ -175,6 +176,23 @@ class FrameCoordinator(DataUpdateCoordinator[FrameData]):
         become permanent and unactionable.
         """
         self._update_art_service_repair(False)
+        self._update_pairing_repair(False)
+
+    def _update_pairing_repair(self, blocked: bool) -> None:
+        """Explain when prompt protection has paused the Art connection."""
+        if self._pairing_repair_state is blocked:
+            return
+        self._pairing_repair_state = blocked
+        issue_id = f"art_pairing_paused_{self.config_entry.entry_id}"
+        if blocked:
+            ir.async_create_issue(
+                self.hass, DOMAIN, issue_id, is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="art_pairing_paused",
+                translation_placeholders={"name": self.config_entry.title},
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
     def _last_stable(self) -> TvMode:
         if self.data is not None and self.data.tv_mode is not TvMode.UNKNOWN:
@@ -521,6 +539,7 @@ class FrameCoordinator(DataUpdateCoordinator[FrameData]):
     @callback
     def handle_art_session_state(self, state: ArtSessionState) -> None:
         """Refresh once when a new Art receiver generation becomes ready."""
+        self._update_pairing_repair(self.device.art_pairing_blocked)
         if state is not ArtSessionState.READY:
             return
         if (

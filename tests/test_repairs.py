@@ -246,3 +246,25 @@ async def test_standby_counts_on_a_model_that_shows_art_in_standby(
     assert entry.runtime_data._art_implies_power_on is False
     assert entry.runtime_data.data.art_service_unavailable is True
     assert _issue(hass, entry) is not None
+
+async def test_paused_art_pairing_creates_actionable_repair(hass, mock_device):
+    mock_device.async_device_info.return_value = {"PowerState": "on"}
+    entry = await _setup(hass, mock_device)
+    mock_device.art_pairing_blocked = True
+    entry.runtime_data.handle_art_session_state(ArtSessionState.BACKOFF)
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, f"art_pairing_paused_{entry.entry_id}")
+    assert issue is not None
+    assert issue.translation_key == "art_pairing_paused"
+    mock_device.art_pairing_blocked = False
+    entry.runtime_data.handle_art_session_state(ArtSessionState.CONNECTING)
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"art_pairing_paused_{entry.entry_id}") is None
+
+async def test_paused_art_pairing_repair_clears_on_unload(hass, mock_device):
+    mock_device.async_device_info.return_value = {"PowerState": "on"}
+    entry = await _setup(hass, mock_device)
+    mock_device.art_pairing_blocked = True
+    entry.runtime_data.handle_art_session_state(ArtSessionState.BACKOFF)
+    issue_id = f"art_pairing_paused_{entry.entry_id}"
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
