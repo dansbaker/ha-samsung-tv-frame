@@ -89,3 +89,27 @@ async def test_skips_decompression_bomb_and_uses_another_image(hass, monkeypatch
     image, metadata = await museum_art.fetch_art(hass)
     assert image == b"prepared"
     assert metadata["title"] == "Valid"
+
+async def test_cleveland_uses_full_size_when_print_is_too_small(hass, monkeypatch):
+    monkeypatch.setattr(museum_art.random, "shuffle", lambda x: None)
+    async def get_json(session, url, **params):
+        if params.get("limit") == 1:
+            return {"info": {"total": 1}}
+        return {"data": [{"title": "Full resolution", "images": {
+            "print": {"width": 3400, "height": 2400, "url": "https://example.org/print"},
+            "full": {"width": 5000, "height": 3000, "url": "https://example.org/full"},
+        }}]}
+    monkeypatch.setattr(museum_art, "_json", get_json)
+    download = AsyncMock(return_value=b"image")
+    monkeypatch.setattr(museum_art, "_image", download)
+    monkeypatch.setattr(museum_art, "_prepare", lambda data: b"prepared")
+    image, metadata = await museum_art.fetch_art(hass)
+    assert image == b"prepared"
+    assert metadata["title"] == "Full resolution"
+    assert download.await_args.args[1] == "https://example.org/full"
+
+
+def test_cleveland_rejects_known_large_or_portrait_originals():
+    assert not museum_art._eligible_image({"width": 5000, "height": 3000, "filesize": museum_art.MAX_BYTES + 1, "url": "https://example.org/large"})
+    assert not museum_art._eligible_image({"width": 4000, "height": 5000, "filesize": 1000, "url": "https://example.org/portrait"})
+    assert museum_art._eligible_image({"width": 5000, "height": 3000, "filesize": 1000, "url": "https://example.org/valid"})

@@ -50,6 +50,22 @@ def _prepare(data: bytes) -> bytes:
         canvas.save(out, "JPEG", quality=94, optimize=True)
         return out.getvalue()
 
+
+def _eligible_image(image: Any) -> bool:
+    """Reject unsuitable known image dimensions and sizes before downloading."""
+    if not isinstance(image, dict) or not image.get("url"):
+        return False
+    try:
+        width = int(image.get("width") or 0)
+        height = int(image.get("height") or 0)
+        size = int(image.get("filesize") or 0)
+    except (TypeError, ValueError):
+        return False
+    return (
+        width >= 3840 and height >= 2160 and width / height >= 1.25
+        and width * height <= MAX_PIXELS and (not size or size <= MAX_BYTES)
+    )
+
 async def fetch_art(hass) -> tuple[bytes, dict[str, str]]:
     """Try both museums, returning one qualifying public-domain landscape."""
     session = async_get_clientsession(hass)
@@ -68,8 +84,12 @@ async def fetch_art(hass) -> tuple[bytes, dict[str, str]]:
                 random.shuffle(records)
                 candidates = []
                 for item in records:
-                    img = (item.get("images") or {}).get("print") or {}
-                    if int(img.get("width") or 0) >= 3840 and int(img.get("height") or 0) >= 2160 and img.get("url"):
+                    images = item.get("images") or {}
+                    # Cleveland's print derivative is often capped at 3400 px;
+                    # the full variant can supply the genuine 4K original.
+                    img = next((image for image in (images.get("full") or {}, images.get("print") or {})
+                                if _eligible_image(image)), None)
+                    if img:
                         creators = item.get("creators") or []
                         candidates.append((img["url"], {"source": "Cleveland Museum of Art", "title": item.get("title") or "Untitled", "artist": creators[0].get("description", "Unknown") if creators else "Unknown", "link": item.get("url") or "https://www.clevelandart.org/open-access"}))
             else:
