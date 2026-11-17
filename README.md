@@ -1,5 +1,7 @@
 # Samsung Frame TV (Home Assistant)
 
+> This fork adds an experimental museum-art rotation and a model-specific tokenless Art connection. The remote-control channel still uses its paired token. The rotation depends on internet access to museum APIs; TV controls remain local. See [PROBE.md](PROBE.md) for tested modes and limitations.
+
 Accurate OFF / WATCHING / ART-MODE state for Samsung Frame TVs, plus power and basic controls.
 
 > [!NOTE]
@@ -12,7 +14,7 @@ Accurate OFF / WATCHING / ART-MODE state for Samsung Frame TVs, plus power and b
 
 Requires Home Assistant **2026.3.0** or later.
 
-**HACS** — add `https://github.com/bonzanni/ha-samsung-tv-frame` as a custom
+**HACS** — add `https://github.com/dansbaker/ha-samsung-tv-frame` as a custom
 repository (category: Integration), install it, then restart Home Assistant.
 
 **Manual** — copy `custom_components/samsung_tv_frame/` into your Home Assistant
