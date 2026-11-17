@@ -149,3 +149,15 @@ set_favourite:
       example: MY_F0034
       selector:
         text:
+
+list_art:
+  target:
+    entity:
+      integration: samsung_tv_frame
+      domain: media_player
+
+rotate_museum_art:
+  target:
+    entity:
+      integration: samsung_tv_frame
+      domain: media_player

@@ -10,7 +10,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from samsungtvws.exceptions import ConnectionFailure
+from samsungtvws.exceptions import ConnectionFailure, UnauthorizedError
 from websockets.protocol import State
 
 from custom_components.samsung_tv_frame import art_session as art_session_module
@@ -1467,3 +1467,18 @@ async def test_user_commands_during_a_boot_do_not_hurry_the_fault():
     assert await session.async_ensure_ready(ArtSessionTrigger.BACKGROUND)
     assert not session.host_fault
     await session.async_stop()
+
+@pytest.mark.parametrize("error", [TimeoutError(), UnauthorizedError("denied")])
+async def test_pairing_uncertainty_never_retries_in_background_or_on_power_edges(error):
+    art = FakeArt([error, None])
+    clock = FakeClock()
+    session, _ = make_session(art, clock)
+    await session.async_start()
+    assert not await session.async_ensure_ready(ArtSessionTrigger.BACKGROUND)
+    clock.now += 3600
+    for reachable_edge in (False, True, False):
+        session.observe_power(True, "on", reachable_edge)
+        await asyncio.sleep(0)
+    assert art.start_listening.await_count == 1
+    assert not await session.async_ensure_ready(ArtSessionTrigger.USER)
+    assert art.start_listening.await_count == 1

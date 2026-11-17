@@ -2841,3 +2841,10 @@ async def test_get_artmode_nav_is_indeterminate(hass, device):
     """The art menu must not be reported as "not art mode"."""
     device._art.get_artmode = AsyncMock(return_value="nav")
     assert await device.async_get_artmode() is None
+
+def test_tokenless_art_stays_tokenless_after_remote_token_refresh(hass):
+    device = FrameDevice(hass, host="1.2.3.4", mac="02:00:00:00:00:01", token="old", ssl_context=MagicMock(), task_factory=lambda coro, name: asyncio.create_task(coro), tokenless_art=True)
+    assert device._art.token is None
+    device.update_token("new")
+    assert device._art.token is None
+    assert device._remote.token == "new"

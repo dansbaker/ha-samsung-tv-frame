@@ -8,7 +8,7 @@ from collections.abc import Callable, Coroutine
 from enum import StrEnum
 from typing import Any, cast
 
-from samsungtvws.exceptions import ConnectionFailure
+from samsungtvws.exceptions import ConnectionFailure, UnauthorizedError
 
 from .const import (
     ART_CLEANUP_RECHECK,
@@ -80,6 +80,7 @@ class ArtSession:
         self._stop_task: asyncio.Task[None] | None = None
         self._started = False
         self._terminal = False
+        self._pairing_blocked = False
         self._failure_count = 0
         self._host_failure_count = 0
         self._host_unavailable = False
@@ -159,7 +160,7 @@ class ArtSession:
         self, trigger: ArtSessionTrigger
     ) -> bool:
         """Return readiness after joining or starting one allowed attempt."""
-        if not self._started or self._terminal:
+        if not self._started or self._terminal or self._pairing_blocked:
             return False
         if self.ready:
             return True
@@ -334,6 +335,7 @@ class ArtSession:
         return (
             self._started
             and not self._terminal
+            and not self._pairing_blocked
             and self._state
             in {ArtSessionState.BACKOFF, ArtSessionState.DORMANT}
             and self._active_connect_task() is None
@@ -358,7 +360,7 @@ class ArtSession:
         task = self._active_connect_task()
         if task is not None:
             return task
-        if not self._started or self._terminal or self.ready:
+        if not self._started or self._terminal or self._pairing_blocked or self.ready:
             return None
         close_task = self._close_task
         if close_task is not None:
@@ -415,6 +417,15 @@ class ArtSession:
             if self._started and not self._terminal:
                 self._next_retry_at = self._clock() + ART_CLEANUP_RECHECK
                 self._set_state(ArtSessionState.BACKOFF)
+            return False
+        except (TimeoutError, UnauthorizedError) as err:
+            if self._started and not self._terminal:
+                self._pairing_blocked = True
+                self._record_failure(err)
+                LOGGER.warning(
+                    "Art connection timed out or was rejected; automatic retries are paused to avoid repeated TV authorization prompts. Reload or reauthorize the integration when ready."
+                )
+            await self._close_transport(force=self._late_close_required())
             return False
         except ArtHostUnavailable as err:
             if self._started and not self._terminal:

@@ -475,3 +475,60 @@ async def test_play_media_rejects_non_app_type(hass, mock_device):
              "media_content_id": "x"},
             blocking=True,
         )
+
+async def test_upload_art_returns_content_id(hass, mock_device, tmp_path):
+    img = tmp_path / "art.jpg"
+    img.write_bytes(b"image")
+    hass.config.allowlist_external_dirs = {str(tmp_path)}
+    await _setup(hass, mock_device)
+    result = await hass.services.async_call(
+        DOMAIN, "upload_art", {"entity_id": ENTITY, "path": str(img), "show": False},
+        blocking=True, return_response=True,
+    )
+    assert result[ENTITY]["content_id"] == "MY_F9999"
+
+async def test_list_art_returns_records(hass, mock_device):
+    mock_device.async_get_content_list = AsyncMock(return_value=[{"content_id": "MY_F0001"}])
+    await _setup(hass, mock_device)
+    result = await hass.services.async_call(
+        DOMAIN, "list_art", {"entity_id": ENTITY}, blocking=True, return_response=True,
+    )
+    assert result[ENTITY]["artworks"] == [{"content_id": "MY_F0001"}]
+
+async def test_museum_rotation_does_not_interrupt_watching(hass, mock_device):
+    mock_device.async_device_info.return_value = {"PowerState": "on"}
+    mock_device.async_get_artmode.return_value = False
+    await _setup(hass, mock_device)
+    with patch("custom_components.samsung_tv_frame.media_player.fetch_art", new_callable=AsyncMock) as fetch:
+        response = await hass.services.async_call(DOMAIN, "rotate_museum_art", {"entity_id": ENTITY}, blocking=True, return_response=True)
+    assert response[ENTITY]["status"] == "not_in_art_mode"
+    fetch.assert_not_awaited()
+
+async def test_museum_rotation_deletes_only_previous_owned_after_confirm(hass, mock_device):
+    mock_device.async_device_info.return_value = {"PowerState": "on"}
+    mock_device.async_get_artmode.return_value = True
+    entry = await _setup(hass, mock_device)
+    from homeassistant.helpers.storage import Store
+    store = Store(hass, 1, f"frame_museum_{entry.entry_id}")
+    await store.async_save({"date": "2000-01-01", "owned_ids": ["MY_F0001"]})
+    mock_device.async_get_current_art.return_value = "MY_F9999"
+    with patch("custom_components.samsung_tv_frame.media_player.fetch_art", new_callable=AsyncMock, return_value=(b"image", {"title": "Test"})):
+        result = await hass.services.async_call(DOMAIN, "rotate_museum_art", {"entity_id": ENTITY}, blocking=True, return_response=True)
+    assert result[ENTITY]["status"] == "updated"
+    mock_device.async_select_art.assert_awaited_with("MY_F9999", True)
+    mock_device.async_delete_art.assert_awaited_once_with("MY_F0001")
+    assert (await store.async_load())["owned_ids"] == ["MY_F9999"]
+
+async def test_museum_rotation_keeps_old_art_when_selection_unconfirmed(hass, mock_device):
+    mock_device.async_device_info.return_value = {"PowerState": "on"}
+    mock_device.async_get_artmode.return_value = True
+    entry = await _setup(hass, mock_device)
+    from homeassistant.helpers.storage import Store
+    store = Store(hass, 1, f"frame_museum_{entry.entry_id}")
+    await store.async_save({"date": "2000-01-01", "owned_ids": ["MY_F0001"]})
+    mock_device.async_get_current_art.return_value = "MY_F0001"
+    with patch("custom_components.samsung_tv_frame.media_player.fetch_art", new_callable=AsyncMock, return_value=(b"image", {})):
+        with pytest.raises(HomeAssistantError):
+            await hass.services.async_call(DOMAIN, "rotate_museum_art", {"entity_id": ENTITY}, blocking=True)
+    mock_device.async_delete_art.assert_not_awaited()
+    assert set((await store.async_load())["owned_ids"]) == {"MY_F0001", "MY_F9999"}

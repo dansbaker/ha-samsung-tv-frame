@@ -83,6 +83,7 @@ class FrameDevice:
         *,
         ssl_context: Any,
         task_factory: TaskFactory,
+        tokenless_art: bool = False,
     ) -> None:
         self._hass = hass
         self._host = host
@@ -103,6 +104,7 @@ class FrameDevice:
             ssl_context=ssl_context,
             task_factory=task_factory,
             event_callback=None,
+            tokenless=tokenless_art,
         )
         self._art_session = ArtSession(
             self._art,
@@ -208,7 +210,8 @@ class FrameDevice:
         if remote is None:
             remote = self._create_remote(token)
         self._token = token
-        self._art.token = token
+        if not self._art.tokenless:
+            self._art.token = token
         remote.token = token
         self._remote = remote
 
@@ -427,6 +430,13 @@ class FrameDevice:
 
     async def async_set_artmode(self, on: bool) -> None:
         await self._async_art_mutation(lambda: self._art.set_artmode(on))
+
+    async def async_get_content_list(self) -> list[dict[str, Any]]:
+        """List artwork using the active paired Art session."""
+        result = await self._async_art_read(self._art.get_content_list)
+        if result is None:
+            raise ConnectionFailure("Art session is not available")
+        return result
 
     async def async_get_current_art(self) -> str | None:
         """Content id of the artwork currently selected, or None."""

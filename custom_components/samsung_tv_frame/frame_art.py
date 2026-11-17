@@ -54,6 +54,10 @@ type TaskFactory = Callable[
 ]
 
 
+class ArtHandshakeUncertain(ConnectionFailure, TimeoutError):
+    """An ambiguous handshake may have opened an authorization prompt."""
+
+
 class ArtHostUnavailable(ConnectionFailure):
     """The channel connected but explicitly listed no internal Art host."""
 
@@ -119,15 +123,17 @@ class FrameArt(SamsungTVWSAsyncConnection):
         port=PORT_WS,
         name=CLIENT_NAME,
         timeout=ART_CONNECT_DEADLINE,
+        tokenless=False,
     ):
         super().__init__(
             host,
             endpoint=ART_ENDPOINT,
-            token=token,
+            token=None if tokenless else token,
             port=port,
             name=name,
             timeout=timeout,
         )
+        self.tokenless = tokenless
         self._ssl_context = ssl_context
         self._task_factory: TaskFactory | None = task_factory
         self._event_callback = event_callback
@@ -226,7 +232,7 @@ class FrameArt(SamsungTVWSAsyncConnection):
         """Open the websocket and complete its bounded two-stage handshake."""
         async with self._lifecycle_lock:
             self._raise_if_stopped()
-            if not self.token:
+            if not self.token and not self.tokenless:
                 raise UnauthorizedError("Art authorization required")
             if self.connection is not None:
                 return self.connection
@@ -278,6 +284,9 @@ class FrameArt(SamsungTVWSAsyncConnection):
             frame = process_api_response_silently(await websocket.recv())
             event = frame.get("event", "*")
 
+            if event == "ms.channel.timeOut":
+                raise TimeoutError("Art authorization timed out")
+
             if event == MS_CHANNEL_UNAUTHORIZED:
                 raise UnauthorizedError("Art authorization rejected")
 
@@ -285,7 +294,7 @@ class FrameArt(SamsungTVWSAsyncConnection):
                 if event in _HANDSHAKE_BROADCASTS:
                     continue
                 if event != MS_CHANNEL_CONNECT_EVENT:
-                    raise ConnectionFailure("Art handshake failed")
+                    raise ArtHandshakeUncertain("Art handshake failed")
                 if _explicitly_missing_art_host(frame):
                     raise ArtHostUnavailable(
                         "Art channel connected without an internal host"
@@ -296,7 +305,7 @@ class FrameArt(SamsungTVWSAsyncConnection):
             if event == MS_CHANNEL_READY_EVENT:
                 return
             if event not in _HANDSHAKE_BROADCASTS:
-                raise ConnectionFailure("Art handshake failed")
+                raise ArtHandshakeUncertain("Art handshake failed")
 
     async def start_listening(self) -> None:
         """Open and start the sole HA-owned websocket receiver."""
@@ -388,6 +397,17 @@ class FrameArt(SamsungTVWSAsyncConnection):
         return await self.request(
             "set_artmode_status", value=self._on_off(value)
         )
+
+    async def get_content_list(self) -> list[dict[str, Any]]:
+        """List artworks returned by the TV over the paired Art session."""
+        payload = await self.request("get_content_list")
+        try:
+            records = json.loads(payload["content_list"])
+        except (KeyError, TypeError, ValueError) as err:
+            raise ValueError("Invalid content list from TV") from err
+        if not isinstance(records, list) or not all(isinstance(x, dict) for x in records):
+            raise ValueError("Invalid content list from TV")
+        return records
 
     async def get_current(self) -> dict[str, Any]:
         """Return the current artwork payload."""

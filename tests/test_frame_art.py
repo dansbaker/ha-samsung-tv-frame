@@ -3178,3 +3178,29 @@ async def test_close_serializes_with_in_progress_open():
     assert opened is ws
     assert ws.closed
     assert art.connection is None
+
+async def test_content_list_decodes_samsung_json():
+    art = FrameArt("example", token="token", ssl_context=None, task_factory=None, event_callback=None)
+    art.request = AsyncMock(return_value={"content_list": '[{"content_id":"MY_F0001"}]'})
+    assert await art.get_content_list() == [{"content_id": "MY_F0001"}]
+    art.request.assert_awaited_once_with("get_content_list")
+
+async def test_content_list_rejects_malformed_response():
+    art = FrameArt("example", token="token", ssl_context=None, task_factory=None, event_callback=None)
+    art.request = AsyncMock(return_value={"content_list": "{}"})
+    with pytest.raises(ValueError):
+        await art.get_content_list()
+
+async def test_art_handshake_authorization_timeout_is_not_generic_failure():
+    art = FrameArt("example", token="token", ssl_context=None, task_factory=None, event_callback=None)
+    ws = FakeWebSocket([{"event": "ms.channel.timeOut"}])
+    with pytest.raises(TimeoutError):
+        await art._wait_for_handshake(ws)
+
+async def test_authorized_tokenless_art_handshake_sends_no_token():
+    ws = FakeWebSocket([{"event": "ms.channel.connect"}, {"event": "ms.channel.ready"}])
+    art = FrameArt("example", token="secret-token", ssl_context=None, task_factory=None, event_callback=None, tokenless=True)
+    with patch("custom_components.samsung_tv_frame.frame_art.connect", new_callable=AsyncMock, return_value=ws) as connect_mock:
+        await art.open()
+    assert "token=" not in connect_mock.call_args.args[0]
+    await art.close()

@@ -1,6 +1,7 @@
 """Media player entity for Samsung Frame TV (state + power + basic controls)."""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +14,12 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
     MediaType,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_platform
+from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
@@ -47,6 +50,7 @@ from .coordinator import FrameConfigEntry, FrameCoordinator
 from .entity import FrameEntity
 from .frame_art import UnsupportedArtCommandError
 from .models import TvMode
+from .museum_art import fetch_art
 
 PARALLEL_UPDATES = 0
 
@@ -89,6 +93,15 @@ async def async_setup_entry(
             vol.Optional(ATTR_SHOW, default=True): cv.boolean,
         },
         "async_upload_art_service",
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    platform.async_register_entity_service(
+        "list_art", {}, "async_list_art_service",
+        supports_response=SupportsResponse.ONLY,
+    )
+    platform.async_register_entity_service(
+        "rotate_museum_art", {}, "async_rotate_museum_art_service",
+        supports_response=SupportsResponse.OPTIONAL,
     )
     platform.async_register_entity_service(
         SERVICE_DELETE_ART,
@@ -156,6 +169,7 @@ class FrameMediaPlayer(FrameEntity, MediaPlayerEntity):
     def __init__(self, coordinator: FrameCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = coordinator.config_entry.data[CONF_MAC]
+        self._museum_lock = asyncio.Lock()
 
     @property
     def state(self) -> MediaPlayerState | None:
@@ -262,7 +276,7 @@ class FrameMediaPlayer(FrameEntity, MediaPlayerEntity):
 
     async def async_upload_art_service(
         self, path: str, matte: str, show: bool
-    ) -> None:
+    ) -> dict[str, str]:
         hass = self.hass
         if not hass.config.is_allowed_path(path):
             raise ServiceValidationError(
@@ -281,6 +295,51 @@ class FrameMediaPlayer(FrameEntity, MediaPlayerEntity):
             raise HomeAssistantError(f"Failed to upload {path} to the TV") from err
         if show:
             await self.async_select_art_service(content_id, True)
+        return {"content_id": content_id}
+
+    async def async_list_art_service(self) -> dict[str, Any]:
+        """Return the TV's artwork list."""
+        return {"artworks": await self.coordinator.device.async_get_content_list()}
+
+    async def async_rotate_museum_art_service(self) -> dict[str, Any]:
+        """Replace at most one museum image per day when Art Mode is active."""
+        async with self._museum_lock:
+            store = Store(self.hass, 1, f"frame_museum_{self.coordinator.config_entry.entry_id}")
+            today = dt_util.now().date().isoformat()
+            state = await store.async_load() or {}
+            if state.get("date") == today:
+                return {"status": "already_updated", "artwork": state.get("artwork", {})}
+            if self.coordinator.data.tv_mode != TvMode.ART_MODE:
+                return {"status": "not_in_art_mode"}
+            image, metadata = await fetch_art(self.hass)
+            if self.coordinator.data.tv_mode != TvMode.ART_MODE:
+                return {"status": "not_in_art_mode"}
+            device = self.coordinator.device
+            new_id = await device.async_upload_art(image, "jpg", "none")
+            if not isinstance(new_id, str) or not new_id.startswith("MY_"):
+                raise HomeAssistantError("TV did not return an uploaded image ID")
+            old_ids = list(dict.fromkeys(state.get("owned_ids", [])))
+            pending = {"owned_ids": list(dict.fromkeys(old_ids + [new_id])), "artwork": metadata}
+            await store.async_save(pending)
+            # Do not switch someone back to art if they began watching while uploading.
+            if self.coordinator.data.tv_mode != TvMode.ART_MODE:
+                return {"status": "uploaded_not_shown"}
+            await device.async_select_art(new_id, True)
+            if await device.async_get_current_art() != new_id:
+                raise HomeAssistantError("TV did not confirm the new artwork; previous images retained")
+            pending["date"] = today
+            await store.async_save(pending)
+            for old_id in old_ids:
+                if old_id != new_id and old_id.startswith("MY_"):
+                    try:
+                        if await device.async_delete_art(old_id):
+                            pending["owned_ids"].remove(old_id)
+                            await store.async_save(pending)
+                    except Exception:
+                        # Keep the ID for retry on a later successful rotation.
+                        pass
+            await self.coordinator.async_request_refresh()
+            return {"status": "updated", "content_id": new_id, "artwork": metadata}
 
     async def async_delete_art_service(self, content_id: str) -> None:
         try:
