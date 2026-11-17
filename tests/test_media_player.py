@@ -547,3 +547,50 @@ async def test_museum_rotation_reports_unconfirmed_cleanup(hass, mock_device):
     assert result[ENTITY]["status"] == "updated_cleanup_pending"
     assert result[ENTITY]["cleanup_pending"] == 1
     assert set((await store.async_load())["owned_ids"]) == {"MY_F0001", "MY_F9999"}
+
+async def test_museum_rotation_resumes_staged_image(hass, mock_device):
+    from homeassistant.helpers.storage import Store
+    mock_device.async_device_info.return_value = {"PowerState": "on"}
+    mock_device.async_get_artmode.return_value = True
+    entry = await _setup(hass, mock_device)
+    store = Store(hass, 1, f"frame_museum_{entry.entry_id}")
+    await store.async_save({"date": "2000-01-01", "owned_ids": ["MY_F0001", "MY_F0002"], "staged_id": "MY_F0002", "staged_artwork": {"title": "Staged"}})
+    mock_device.async_get_current_art.return_value = "MY_F0002"
+    with patch("custom_components.samsung_tv_frame.media_player.fetch_art", new_callable=AsyncMock) as fetch:
+        result = await hass.services.async_call(DOMAIN, "rotate_museum_art", {"entity_id": ENTITY}, blocking=True, return_response=True)
+    assert result[ENTITY]["status"] == "updated"
+    assert result[ENTITY]["artwork"]["title"] == "Staged"
+    fetch.assert_not_awaited()
+    mock_device.async_upload_art.assert_not_awaited()
+    mock_device.async_delete_art.assert_awaited_once_with("MY_F0001")
+
+
+async def test_museum_rotation_retries_cleanup_same_day(hass, mock_device):
+    from homeassistant.helpers.storage import Store
+    from homeassistant.util import dt as dt_util
+    mock_device.async_device_info.return_value = {"PowerState": "on"}
+    mock_device.async_get_artmode.return_value = True
+    entry = await _setup(hass, mock_device)
+    store = Store(hass, 1, f"frame_museum_{entry.entry_id}")
+    await store.async_save({"date": dt_util.now().date().isoformat(), "owned_ids": ["MY_F0001", "MY_F0002"], "current_id": "MY_F0002", "artwork": {"title": "Current"}})
+    mock_device.async_get_current_art.return_value = "MY_F0002"
+    with patch("custom_components.samsung_tv_frame.media_player.fetch_art", new_callable=AsyncMock) as fetch:
+        result = await hass.services.async_call(DOMAIN, "rotate_museum_art", {"entity_id": ENTITY}, blocking=True, return_response=True)
+    assert result[ENTITY]["status"] == "already_updated"
+    fetch.assert_not_awaited()
+    mock_device.async_delete_art.assert_awaited_once_with("MY_F0001")
+    assert (await store.async_load())["owned_ids"] == ["MY_F0002"]
+
+
+async def test_museum_cleanup_keeps_image_if_user_selects_it(hass, mock_device):
+    from homeassistant.helpers.storage import Store
+    from homeassistant.util import dt as dt_util
+    mock_device.async_device_info.return_value = {"PowerState": "on"}
+    mock_device.async_get_artmode.return_value = True
+    entry = await _setup(hass, mock_device)
+    store = Store(hass, 1, f"frame_museum_{entry.entry_id}")
+    await store.async_save({"date": dt_util.now().date().isoformat(), "owned_ids": ["MY_F0001", "MY_F0002"], "current_id": "MY_F0002"})
+    mock_device.async_get_current_art.return_value = "MY_F0001"
+    result = await hass.services.async_call(DOMAIN, "rotate_museum_art", {"entity_id": ENTITY}, blocking=True, return_response=True)
+    assert result[ENTITY]["cleanup_pending"] == 1
+    mock_device.async_delete_art.assert_not_awaited()

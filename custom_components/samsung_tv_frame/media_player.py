@@ -302,52 +302,71 @@ class FrameMediaPlayer(FrameEntity, MediaPlayerEntity):
         """Return the TV's artwork list."""
         return {"artworks": await self.coordinator.device.async_get_content_list()}
 
+    async def _async_cleanup_museum_art(self, store: Store, state: dict[str, Any]) -> int:
+        """Retry tracked cleanup while protecting whatever is currently selected."""
+        device = self.coordinator.device
+        current_id = state.get("current_id")
+        candidates = [item for item in state.get("owned_ids", [])
+                      if item != current_id and isinstance(item, str) and item.startswith("MY_")]
+        for old_id in candidates:
+            try:
+                # Do not delete if selection is unknown or has changed while we work.
+                selected = await device.async_get_current_art()
+                if not selected or selected == old_id:
+                    continue
+                if await device.async_delete_art(old_id):
+                    state["owned_ids"].remove(old_id)
+                    await store.async_save(state)
+            except Exception:
+                LOGGER.warning("Could not remove an older museum image; cleanup will be retried")
+        pending = sum(item in state.get("owned_ids", []) for item in candidates)
+        if pending:
+            LOGGER.warning("Museum artwork cleanup has %d image(s) pending", pending)
+        return pending
+
     async def async_rotate_museum_art_service(self) -> dict[str, Any]:
         """Replace at most one museum image per day when Art Mode is active."""
         async with self._museum_lock:
             store = Store(self.hass, 1, f"frame_museum_{self.coordinator.config_entry.entry_id}")
             today = dt_util.now().date().isoformat()
             state = await store.async_load() or {}
+            if self.coordinator.data.tv_mode != TvMode.ART_MODE:
+                return {"status": "not_in_art_mode"}
             if state.get("date") == today:
-                return {"status": "already_updated", "artwork": state.get("artwork", {})}
-            if self.coordinator.data.tv_mode != TvMode.ART_MODE:
-                return {"status": "not_in_art_mode"}
-            image, metadata = await fetch_art(self.hass)
-            if self.coordinator.data.tv_mode != TvMode.ART_MODE:
-                return {"status": "not_in_art_mode"}
+                pending = await self._async_cleanup_museum_art(store, state) if state.get("current_id") else 0
+                return {"status": "already_updated", "artwork": state.get("artwork", {}), "cleanup_pending": pending}
             device = self.coordinator.device
-            new_id = await device.async_upload_art(image, "jpg", "none")
-            if not isinstance(new_id, str) or not new_id.startswith("MY_"):
-                raise HomeAssistantError("TV did not return an uploaded image ID")
-            old_ids = list(dict.fromkeys(state.get("owned_ids", [])))
-            pending = {"owned_ids": list(dict.fromkeys(old_ids + [new_id])), "artwork": metadata}
-            await store.async_save(pending)
-            # Do not switch someone back to art if they began watching while uploading.
+            new_id = state.get("staged_id")
+            metadata = state.get("staged_artwork")
+            if not isinstance(new_id, str) or new_id not in state.get("owned_ids", []):
+                image, metadata = await fetch_art(self.hass)
+                if self.coordinator.data.tv_mode != TvMode.ART_MODE:
+                    return {"status": "not_in_art_mode"}
+                new_id = await device.async_upload_art(image, "jpg", "none")
+                if not isinstance(new_id, str) or not new_id.startswith("MY_"):
+                    raise HomeAssistantError("TV did not return an uploaded image ID")
+                state["owned_ids"] = list(dict.fromkeys(state.get("owned_ids", []) + [new_id]))
+                state["staged_id"] = new_id
+                state["staged_artwork"] = metadata
+                await store.async_save(state)
             if self.coordinator.data.tv_mode != TvMode.ART_MODE:
                 return {"status": "uploaded_not_shown"}
             await device.async_select_art(new_id, True)
             if await device.async_get_current_art() != new_id:
                 raise HomeAssistantError("TV did not confirm the new artwork; previous images retained")
-            pending["date"] = today
-            await store.async_save(pending)
-            for old_id in old_ids:
-                if old_id != new_id and old_id.startswith("MY_"):
-                    try:
-                        if await device.async_delete_art(old_id):
-                            pending["owned_ids"].remove(old_id)
-                            await store.async_save(pending)
-                    except Exception:
-                        # Keep the ID for retry on a later successful rotation.
-                        pass
-            cleanup_pending = sum(old_id in pending["owned_ids"] for old_id in old_ids if old_id != new_id)
-            if cleanup_pending:
-                LOGGER.warning("Museum artwork updated, but %d old image(s) could not be removed", cleanup_pending)
+            state["date"] = today
+            state["current_id"] = new_id
+            state["artwork"] = metadata or {}
+            state.pop("staged_id", None)
+            state.pop("staged_artwork", None)
+            await store.async_save(state)
+            pending = await self._async_cleanup_museum_art(store, state)
             await self.coordinator.async_request_refresh()
             return {
-                "status": "updated_cleanup_pending" if cleanup_pending else "updated",
+                "status": "updated_cleanup_pending" if pending else "updated",
                 "content_id": new_id,
-                "artwork": metadata,
-                "cleanup_pending": cleanup_pending,
+                "artwork": metadata or {},
+                "cleanup_pending": pending,
             }
 
     async def async_delete_art_service(self, content_id: str) -> None:
