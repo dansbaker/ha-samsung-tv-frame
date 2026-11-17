@@ -18,6 +18,7 @@ from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_platform
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -52,6 +53,7 @@ from .entity import FrameEntity
 from .frame_art import UnsupportedArtCommandError
 from .models import TvMode
 from .museum_art import fetch_art
+from .input_source import InputSourceError, select_input
 
 PARALLEL_UPDATES = 0
 
@@ -72,6 +74,10 @@ async def async_setup_entry(
         SERVICE_SEND_KEY,
         {vol.Required(ATTR_KEY): cv.string},
         "async_send_key_service",
+    )
+    platform.async_register_entity_service(
+        "select_hdmi", {vol.Required("input"): vol.In(["HDMI1", "HDMI2", "HDMI3", "HDMI4"])},
+        "async_select_hdmi_service",
     )
     platform.async_register_entity_service(
         SERVICE_SET_ART_MODE,
@@ -171,6 +177,8 @@ class FrameMediaPlayer(FrameEntity, MediaPlayerEntity):
         super().__init__(coordinator)
         self._attr_unique_id = coordinator.config_entry.data[CONF_MAC]
         self._museum_lock = asyncio.Lock()
+        self._input_lock = asyncio.Lock()
+        self._input_blocked = False
 
     @property
     def state(self) -> MediaPlayerState | None:
@@ -260,6 +268,17 @@ class FrameMediaPlayer(FrameEntity, MediaPlayerEntity):
 
     async def async_send_key_service(self, key: str) -> None:
         await self._async_send_key(key)
+
+    async def async_select_hdmi_service(self, input: str) -> None:
+        """Select one input and stop future attempts after any failure."""
+        async with self._input_lock:
+            if self._input_blocked:
+                raise HomeAssistantError("HDMI control is paused after a failure; reload the integration before retrying")
+            try:
+                await select_input(async_get_clientsession(self.hass), self.coordinator.device.host, input)
+            except InputSourceError as err:
+                self._input_blocked = True
+                raise HomeAssistantError("HDMI control failed; retries are paused to avoid TV prompts") from err
 
     async def async_set_art_mode_service(self, enabled: bool) -> None:
         try:

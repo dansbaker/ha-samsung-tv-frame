@@ -547,3 +547,23 @@ async def test_museum_rotation_reports_unconfirmed_cleanup(hass, mock_device):
     assert result[ENTITY]["status"] == "updated_cleanup_pending"
     assert result[ENTITY]["cleanup_pending"] == 1
     assert set((await store.async_load())["owned_ids"]) == {"MY_F0001", "MY_F9999"}
+
+async def test_select_hdmi_service_calls_local_input_channel(hass, mock_device):
+    mock_device.async_device_info.return_value = {"PowerState": "on"}
+    mock_device.async_get_artmode.return_value = False
+    await _setup(hass, mock_device)
+    with patch("custom_components.samsung_tv_frame.media_player.select_input", new_callable=AsyncMock) as select:
+        await hass.services.async_call(DOMAIN, "select_hdmi", {"entity_id": ENTITY, "input": "HDMI4"}, blocking=True)
+    assert select.await_args.args[-1] == "HDMI4"
+
+
+async def test_select_hdmi_service_pauses_after_failure(hass, mock_device):
+    from custom_components.samsung_tv_frame.input_source import InputSourceError
+    mock_device.async_device_info.return_value = {"PowerState": "on"}
+    mock_device.async_get_artmode.return_value = False
+    await _setup(hass, mock_device)
+    with patch("custom_components.samsung_tv_frame.media_player.select_input", new_callable=AsyncMock, side_effect=InputSourceError("failed")) as select:
+        for _ in range(2):
+            with pytest.raises(HomeAssistantError):
+                await hass.services.async_call(DOMAIN, "select_hdmi", {"entity_id": ENTITY, "input": "HDMI4"}, blocking=True)
+    assert select.await_count == 1

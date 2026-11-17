@@ -161,3 +161,18 @@ rotate_museum_art:
     entity:
       integration: samsung_tv_frame
       domain: media_player
+
+select_hdmi:
+  name: Select HDMI input
+  description: Select and confirm a local HDMI input.
+  fields:
+    input:
+      name: Input
+      required: true
+      selector:
+        select:
+          options: [HDMI1, HDMI2, HDMI3, HDMI4]
+  target:
+    entity:
+      integration: samsung_tv_frame
+      domain: media_player
