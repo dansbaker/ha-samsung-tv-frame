@@ -159,6 +159,7 @@ async def test_loaded_diagnostics_exact_allowlist_privacy_and_zero_io(
     mock_device.art_generation = 12
     mock_device.art_ready = True
     mock_device.art_session_state = ArtSessionState.READY
+    mock_device.art_pairing_blocked = False
     mock_device.remote_confirmed = True
     mock_device._diagnostics_private_canary = device_private_canary
     entry.runtime_data = coordinator
@@ -178,6 +179,7 @@ async def test_loaded_diagnostics_exact_allowlist_privacy_and_zero_io(
         "art_mode_known": True,
         "art_session_state": "ready",
         "art_session_ready": True,
+        "art_pairing_blocked": False,
         "art_host_unavailable": False,
         "art_session_generation": 12,
         "art_failures": 2,

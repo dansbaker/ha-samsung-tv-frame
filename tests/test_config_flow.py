@@ -75,14 +75,14 @@ def _existing_entry() -> MockConfigEntry:
 
 
 @contextmanager
-def pairing_patches(hass, *, remote, art, ssl_context):
+def pairing_patches(hass, *, remote, art, ssl_context, model="QE65LS03BAUXXH"):
     rest = MagicMock()
     rest.rest_device_info = AsyncMock(
         return_value={
             "device": {
                 "FrameTVSupport": "true",
                 "wifiMac": "02:00:00:00:00:01",
-                "modelName": "QE65LS03BAUXXH",
+                "modelName": model,
             }
         }
     )
@@ -136,6 +136,15 @@ async def test_pair_remote_token_is_used_to_validate_art(hass):
     remote.async_stop.assert_awaited_once()
     remote.close.assert_not_awaited()
     art.close.assert_awaited_once()
+
+
+async def test_pair_validation_uses_tokenless_art_on_approved_model(hass):
+    remote = _remote_client()
+    art = _art_client()
+    with pairing_patches(hass, remote=remote, art=art, ssl_context=object(), model="QE55LS03DAUXXU") as constructor:
+        await validate_and_pair(hass, "1.2.3.4")
+    assert constructor.call_args.kwargs["tokenless"] is True
+    assert constructor.call_args.kwargs["token"] == "remote-token"
 
 
 async def test_pair_validation_rest_response_is_not_logged(

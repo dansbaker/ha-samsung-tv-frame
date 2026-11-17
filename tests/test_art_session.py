@@ -1475,6 +1475,7 @@ async def test_pairing_uncertainty_never_retries_in_background_or_on_power_edges
     session, _ = make_session(art, clock)
     await session.async_start()
     assert not await session.async_ensure_ready(ArtSessionTrigger.BACKGROUND)
+    assert session.pairing_blocked is True
     clock.now += 3600
     for reachable_edge in (False, True, False):
         session.observe_power(True, "on", reachable_edge)

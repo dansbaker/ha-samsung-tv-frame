@@ -97,6 +97,11 @@ class ArtSession:
         return self._state
 
     @property
+    def pairing_blocked(self) -> bool:
+        """Whether retries are paused to avoid repeated TV authorization prompts."""
+        return self._pairing_blocked
+
+    @property
     def generation(self) -> int:
         """Return the number of successful transport generations."""
         return self._generation

@@ -35,6 +35,7 @@ from .const import (
     PAIRING_DEADLINE,
     PORT_REST,
     REMOTE_CLOSE_DEADLINE,
+    TOKENLESS_ART_MODELS,
 )
 from .frame_art import FrameArt
 from .frame_remote import FrameRemote, RemotePairingRequired
@@ -152,6 +153,7 @@ async def validate_and_pair(hass, host: str) -> dict[str, Any]:
             task_factory=None,
             event_callback=None,
             timeout=PAIRING_DEADLINE,
+            **({"tokenless": True} if device.get("modelName") in TOKENLESS_ART_MODELS else {}),
         )
         async with asyncio.timeout(PAIRING_DEADLINE):
             await art.open()

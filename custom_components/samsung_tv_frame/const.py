@@ -24,6 +24,7 @@ CONF_HOST = "host"
 CONF_MAC = "mac"
 CONF_TOKEN = "token"
 CONF_MODEL = "model"
+TOKENLESS_ART_MODELS = frozenset({"QE55LS03DAUXXU"})
 
 # Options
 OPT_HEARTBEAT = "heartbeat_seconds"

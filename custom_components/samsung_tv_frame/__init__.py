@@ -16,6 +16,7 @@ from .const import (
     CONF_TOKEN,
     LOGGER,
     PLATFORMS,
+    TOKENLESS_ART_MODELS,
 )
 from .coordinator import FrameConfigEntry, FrameCoordinator
 from .device import FrameDevice
@@ -50,7 +51,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FrameConfigEntry) -> boo
         token=entry.data.get(CONF_TOKEN),
         ssl_context=ssl_context,
         task_factory=task_factory,
-        tokenless_art=entry.data.get(CONF_MODEL) == "QE55LS03DAUXXU",
+        tokenless_art=entry.data.get(CONF_MODEL) in TOKENLESS_ART_MODELS,
     )
     coordinator = FrameCoordinator(hass, entry, device)
     try:

@@ -159,6 +159,11 @@ class FrameDevice:
         """Return the supervised Art lifecycle state."""
         return self._art_session.state
 
+    @property
+    def art_pairing_blocked(self) -> bool:
+        """Whether Art connection attempts are paused after an uncertain handshake."""
+        return self._art_session.pairing_blocked
+
     def observe_art_power(
         self,
         reachable: bool,

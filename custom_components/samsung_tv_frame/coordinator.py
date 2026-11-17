@@ -113,6 +113,7 @@ class FrameCoordinator(DataUpdateCoordinator[FrameData]):
             "art_mode_known": data.art_mode is not None,
             "art_session_state": self.device.art_session_state.value,
             "art_session_ready": self.device.art_ready,
+            "art_pairing_blocked": self.device.art_pairing_blocked,
             "art_host_unavailable": self.device.art_host_unavailable,
             "art_session_generation": generation,
             "art_failures": self._art_fail_streak,
