@@ -142,3 +142,36 @@ async def test_slideshow_unavailable_for_stale_generation(hass, mock_device):
     await hass.async_block_till_done()
 
     assert hass.states.get(SLIDESHOW).state == "unavailable"
+
+async def test_current_art_shows_museum_metadata_only_for_matching_picture(hass, mock_device):
+    mock_device.async_get_current_art.return_value = "MY_F0034"
+    entry = await _setup(hass, mock_device)
+    entry.runtime_data.set_museum_art({"current_id": "MY_F0034", "artwork": {"title": "Landscape", "artist": "Painter", "source": "Museum", "link": "https://example.org/art"}})
+    await hass.async_block_till_done()
+    state = hass.states.get(CURRENT_ART)
+    assert state.attributes["title"] == "Landscape"
+    assert state.attributes["artist"] == "Painter"
+    entry.runtime_data.async_set_updated_data(replace(entry.runtime_data.data, current_art="MY_F9999"))
+    await hass.async_block_till_done()
+    state = hass.states.get(CURRENT_ART)
+    assert "title" not in state.attributes
+    assert "artist" not in state.attributes
+
+async def test_museum_metadata_restores_after_integration_reload(hass, mock_device):
+    from homeassistant.helpers.storage import Store
+    mock_device.async_get_current_art.return_value = "MY_F0034"
+    entry = await _setup(hass, mock_device)
+    await Store(hass, 1, f"frame_museum_{entry.entry_id}").async_save({"current_id": "MY_F0034", "artwork": {"title": "Landscape", "artist": "Painter"}})
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    with patch("custom_components.samsung_tv_frame.FrameDevice", return_value=mock_device):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    assert hass.states.get(CURRENT_ART).attributes["title"] == "Landscape"
+
+async def test_bad_museum_metadata_does_not_prevent_tv_setup(hass, mock_device):
+    from unittest.mock import AsyncMock, MagicMock
+    store = MagicMock(async_load=AsyncMock(side_effect=ValueError("bad store")))
+    with patch("custom_components.samsung_tv_frame.Store", return_value=store):
+        entry = await _setup(hass, mock_device)
+    assert entry.state.value == "loaded"
+    assert hass.states.get(TV_MODE).state == "art_mode"

@@ -81,6 +81,7 @@ class FrameCoordinator(DataUpdateCoordinator[FrameData]):
         self._art_service_repair_raised = False
         self._art_service_repair_synced = False
         self._pairing_repair_state: bool | None = None
+        self._museum_art: dict[str, Any] = {}
         self._standby_refresh_task: asyncio.Task | None = None
         # Consecutive polls (reachable, power on) with a failed art query;
         # bounds the last-stable hold so a permanently broken art channel
@@ -99,6 +100,27 @@ class FrameCoordinator(DataUpdateCoordinator[FrameData]):
         self.app_map: dict[str, dict[str, Any]] = {
             name: dict(app) for name, app in DEFAULT_APP_MAP.items()
         }
+
+    @callback
+    def set_museum_art(self, state: dict[str, Any]) -> None:
+        """Keep metadata locally; expose it only for the matching selected image."""
+        art = state.get("artwork")
+        self._museum_art = {
+            "current_id": state.get("current_id"),
+            "artwork": dict(art) if isinstance(art, dict) else {},
+        }
+        self.async_update_listeners()
+
+    @property
+    def museum_art_metadata(self) -> dict[str, str]:
+        """Return attribution only when the TV identifies the displayed image."""
+        if not self.device.art_ready or not self.data or not self.data.current_art:
+            return {}
+        if self._museum_art.get("current_id") != self.data.current_art:
+            return {}
+        art = self._museum_art.get("artwork", {})
+        return {key: art[key] for key in ("title", "artist", "source", "link")
+                if isinstance(art.get(key), str) and art[key]}
 
     def diagnostics_snapshot(self) -> dict[str, Any]:
         """Return the strict, zero-I/O diagnostics allowlist."""

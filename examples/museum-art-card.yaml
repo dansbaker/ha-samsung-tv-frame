@@ -1,0 +1,23 @@
+# Replace these example entity IDs with your Frame's IDs in the dashboard editor.
+type: vertical-stack
+cards:
+  - type: picture-entity
+    entity: image.samsung_frame_tv_current_art_image
+    name: On the Frame
+    show_state: false
+  - type: entities
+    entities:
+      - entity: sensor.samsung_frame_tv_current_art
+        type: attribute
+        attribute: title
+        name: Artwork
+      - entity: sensor.samsung_frame_tv_current_art
+        type: attribute
+        attribute: artist
+        name: Artist
+      - entity: sensor.samsung_frame_tv_current_art
+        type: attribute
+        attribute: source
+        name: Museum
+      - entity: switch.samsung_frame_tv_art_mode_switch
+        name: Art mode

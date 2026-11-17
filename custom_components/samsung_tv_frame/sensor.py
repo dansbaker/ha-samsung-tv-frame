@@ -60,6 +60,10 @@ class FrameCurrentArtSensor(FrameEntity, SensorEntity):
     def native_value(self) -> str | None:
         return self.coordinator.data.current_art
 
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        return self.coordinator.museum_art_metadata
+
 
 class FrameSlideshowSensor(FrameEntity, SensorEntity):
     """Expose the current Art Mode slideshow state."""

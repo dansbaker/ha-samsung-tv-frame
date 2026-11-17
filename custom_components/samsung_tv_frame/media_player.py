@@ -359,6 +359,7 @@ class FrameMediaPlayer(FrameEntity, MediaPlayerEntity):
                     if isinstance(current, str) and current in state["owned_ids"]:
                         state["current_id"] = current
                         await store.async_save(state)
+                        self.coordinator.set_museum_art(state)
                 pending = (
                     await self._async_cleanup_museum_art(store, state)
                     if state.get("current_id") else len(state.get("owned_ids", []))
@@ -389,6 +390,7 @@ class FrameMediaPlayer(FrameEntity, MediaPlayerEntity):
             state.pop("staged_id", None)
             state.pop("staged_artwork", None)
             await store.async_save(state)
+            self.coordinator.set_museum_art(state)
             pending = await self._async_cleanup_museum_art(store, state)
             await self.coordinator.async_request_refresh()
             return {

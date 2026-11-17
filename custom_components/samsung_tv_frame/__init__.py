@@ -5,6 +5,7 @@ import asyncio
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.storage import Store
 from samsungtvws.helper import get_ssl_context
 
 from .const import (
@@ -63,6 +64,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: FrameConfigEntry) -> boo
         device.set_remote_reauth_callback(coordinator.handle_remote_reauth)
         await device.async_start_art_session()
         await coordinator.async_config_entry_first_refresh()
+        try:
+            museum_state = await Store(hass, 1, f"frame_museum_{entry.entry_id}").async_load()
+        except (OSError, ValueError):
+            LOGGER.warning("Could not load saved museum artwork metadata")
+            museum_state = None
+        if isinstance(museum_state, dict):
+            coordinator.set_museum_art(museum_state)
         entry.runtime_data = coordinator
         await hass.config_entries.async_forward_entry_setups(
             entry, PLATFORMS

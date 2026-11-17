@@ -518,6 +518,10 @@ async def test_museum_rotation_deletes_only_previous_owned_after_confirm(hass, m
     mock_device.async_select_art.assert_awaited_with("MY_F9999", True)
     mock_device.async_delete_art.assert_awaited_once_with("MY_F0001")
     assert (await store.async_load())["owned_ids"] == ["MY_F9999"]
+    from dataclasses import replace
+    entry.runtime_data.async_set_updated_data(replace(entry.runtime_data.data, current_art="MY_F9999"))
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.samsung_frame_tv_current_art").attributes["title"] == "Test"
 
 async def test_museum_rotation_keeps_old_art_when_selection_unconfirmed(hass, mock_device):
     mock_device.async_device_info.return_value = {"PowerState": "on"}
