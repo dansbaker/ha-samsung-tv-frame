@@ -15,6 +15,7 @@ MET_SEARCH = "https://collectionapi.metmuseum.org/public/collection/v1.1/search"
 MET_OBJECT = "https://collectionapi.metmuseum.org/public/collection/v1/objects/{}"
 CMA = "https://openaccess-api.clevelandart.org/api/artworks/"
 MAX_BYTES = 35 * 1024 * 1024
+MAX_PIXELS = 50_000_000
 
 async def _json(session, url, **params):
     async with session.get(url, params=params, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=25)) as response:
@@ -35,6 +36,8 @@ async def _image(session, url):
 
 def _prepare(data: bytes) -> bytes:
     with Image.open(BytesIO(data)) as original:
+        if original.width * original.height > MAX_PIXELS:
+            raise ValueError("image dimensions are too large")
         original = ImageOps.exif_transpose(original).convert("RGB")
         width, height = original.size
         if width < 3840 or height < 2160 or width / height < 1.25:
@@ -74,7 +77,10 @@ async def fetch_art(hass) -> tuple[bytes, dict[str, str]]:
                 ids = info.get("objectIDs") or []
                 candidates = []
                 for obj_id in random.sample(ids, min(12, len(ids))):
-                    item = await _json(session, MET_OBJECT.format(obj_id))
+                    try:
+                        item = await _json(session, MET_OBJECT.format(obj_id))
+                    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+                        continue
                     if item.get("isPublicDomain") and item.get("primaryImage"):
                         candidates.append((item["primaryImage"], {"source": "The Metropolitan Museum of Art", "title": item.get("title") or "Untitled", "artist": item.get("artistDisplayName") or "Unknown", "link": item.get("objectURL") or "https://www.metmuseum.org/hubs/open-access"}))
             for url, metadata in candidates[:12]:
