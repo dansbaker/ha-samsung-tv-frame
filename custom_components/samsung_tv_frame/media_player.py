@@ -278,7 +278,7 @@ class FrameMediaPlayer(FrameEntity, MediaPlayerEntity):
                 await select_input(async_get_clientsession(self.hass), self.coordinator.device.host, input)
             except InputSourceError as err:
                 self._input_blocked = True
-                raise HomeAssistantError("HDMI control failed; retries are paused to avoid TV prompts") from err
+                raise HomeAssistantError(f"HDMI control failed: {err}; retries are paused to avoid TV prompts") from err
 
     async def async_set_art_mode_service(self, enabled: bool) -> None:
         try:

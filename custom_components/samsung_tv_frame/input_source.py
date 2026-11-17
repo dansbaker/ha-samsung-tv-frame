@@ -62,7 +62,7 @@ async def select_input(session, host: str, source: str, *, settle_seconds: float
             if not any(isinstance(x, dict) and x.get("sourceId") == target for x in entries):
                 raise InputSourceError("HDMI input is not offered by the TV")
             response = await request("launch.extsource", {"requestId": target})
-            if response.get("statusCode") != 100 or response.get("response", {}).get("status") != "ok":
+            if str(response.get("statusCode")) != "100" or response.get("response", {}).get("status") != "ok":
                 raise InputSourceError("TV rejected the input request")
             await asyncio.sleep(settle_seconds)
             listing = await request("get.extsources", {})

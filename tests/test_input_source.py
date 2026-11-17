@@ -12,7 +12,7 @@ def message(event, data):
 
 
 def answer(request, seq, response):
-    return message('/sec/tv/appdata/mobilebff', {'id': request, 'seqId': str(seq), 'statusCode': 100, 'response': response})
+    return message('/sec/tv/appdata/mobilebff', {'id': request, 'seqId': str(seq), 'statusCode': '100', 'response': response})
 
 
 async def test_select_input_confirms_television_readback():
